@@ -1,0 +1,1401 @@
+package com.karwatechnologies.karwataxi.fragments;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.Dialog;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentSender;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.os.Bundle;
+import android.os.Handler;
+import android.view.View;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.app.ActivityCompat;
+
+import com.afollestad.materialdialogs.DialogAction;
+import com.afollestad.materialdialogs.MaterialDialog;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResolvableApiException;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.LocationSettingsRequest;
+import com.google.android.gms.location.LocationSettingsResponse;
+import com.google.android.gms.location.LocationSettingsResult;
+import com.google.android.gms.location.LocationSettingsStatusCodes;
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.MapView;
+import com.google.android.gms.maps.MapsInitializer;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.karwatechnologies.karwataxi.Config;
+import com.karwatechnologies.karwataxi.R;
+import com.karwatechnologies.karwataxi.activities.navigation_bar.NavigationBarActivity;
+import com.karwatechnologies.karwataxi.animation.MapAnimations;
+import com.karwatechnologies.karwataxi.data.ApplicationStateData;
+import com.karwatechnologies.karwataxi.data.remote.GeoLocation;
+import com.karwatechnologies.karwataxi.data.remote.RideMarkerBean;
+import com.karwatechnologies.karwataxi.maps.MapUtil;
+import com.karwatechnologies.karwataxi.network.HandlerFactory;
+import com.karwatechnologies.karwataxi.network.KarwaApi;
+import com.karwatechnologies.karwataxi.ui.MessageUtil;
+import com.karwatechnologies.karwataxi.util.DateTimeUtil;
+import com.karwatechnologies.karwataxi.util.ListOperationsUtil;
+import com.karwatechnologies.karwataxi.util.LocationUtil;
+import com.karwatechnologies.karwataxi.util.LocationsObjectsFactory;
+import com.karwatechnologies.karwataxi.util.LogUtil;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+import static com.karwatechnologies.karwataxi.Config.RIDE_TYPE_STANDARD;
+import static com.karwatechnologies.karwataxi.animation.MapAnimations.CAMERA_SPEED_FAST;
+import static com.karwatechnologies.karwataxi.fragments.FragmentUtil.CREATE_BOOKING;
+import static com.karwatechnologies.karwataxi.maps.MapUtil.STYLE_DARK;
+import static com.karwatechnologies.karwataxi.maps.MapUtil.STYLE_DEFAULT;
+import static com.karwatechnologies.karwataxi.util.LogUtil.LOGD;
+import static com.karwatechnologies.karwataxi.util.LogUtil.LOGE;
+import static com.karwatechnologies.karwataxi.util.LogUtil.LOGI;
+import static com.karwatechnologies.karwataxi.util.LogUtil.makeLogTag;
+
+/**
+ * Created by Oashraf on 12/13/2017.
+ */
+
+public abstract class BaseMapFragment extends BaseFragment implements
+        OnMapReadyCallback,
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener
+{
+
+    private static final String TAG = makeLogTag(BaseMapFragment.class);
+
+    public static final float MAP_DEFAULT_ZOOM_LEVEL = 14;
+    public static final float MAP_ZOOM_LEVEL_CONFIRM_PICKUP = 17;
+    public static final float MAP_DOHA_ZOOM_LEVEL = 10;
+    public static final int RIDE_UPDATE_INTERVAL_DEFAULT = 4000;
+    public static final int NEARBY_RIDES_ON_MAP = 5;
+    public static final int ETA_VEHICLE_LIMIT = 1;
+    public static final int FARE_UPDATE_INTERVAL = 60000;
+
+    public static final int REQUEST_CHECK_SETTINGS = 17;
+    public static final int MY_PERMISSIONS_REQUEST_READ_LOCATION = 7;
+    public int currentRideType = 0;
+
+    protected GoogleApiClient mGoogleApiClient;
+    private GoogleMap googleMap;
+    private MapView mMapView;
+    private FusedLocationProviderClient mFusedLocationClient;
+
+    private Location currentLocation;
+    private GeoLocation currentGeoLocation;
+    private LocationRequest locationRequest;
+
+    public Dialog locationDialog;
+
+    private ScheduledExecutorService scheduler;
+    private ScheduledFuture<?> future;
+
+    public ArrayList<RideMarkerBean> currentRidesList = new ArrayList<>();
+
+    private Map<String, Marker> rideMarkersMap = new HashMap<>();
+
+    private boolean showNearbyRidesUpdate;
+    private int rideUpdateInterval;
+    private int markerAnimationStartY = 0;
+
+    private boolean requestForGeoLocation;
+    private boolean updateRidesOnMap = true;
+    private boolean isTurnOnLocationClicked;
+
+
+    protected BaseMapFragment(boolean isRideUpdateEnabled)
+    {
+        this.showNearbyRidesUpdate = isRideUpdateEnabled;
+        rideUpdateInterval = RIDE_UPDATE_INTERVAL_DEFAULT;
+    }
+
+    protected BaseMapFragment(boolean isRideUpdateEnabled, boolean requestForGeoLocation)
+    {
+        this.showNearbyRidesUpdate = isRideUpdateEnabled;
+        this.requestForGeoLocation = requestForGeoLocation;
+        rideUpdateInterval = RIDE_UPDATE_INTERVAL_DEFAULT;
+    }
+
+    protected BaseMapFragment(boolean isRideUpdateEnabled, int rideUpdateInterval)
+    {
+        this.showNearbyRidesUpdate = isRideUpdateEnabled;
+        this.rideUpdateInterval = rideUpdateInterval;
+    }
+
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState)
+    {
+        super.onCreate(savedInstanceState);
+
+        buildGoogleApiClient();
+
+    }
+
+    /**
+     * Builds a GoogleApiClient. Uses the {@code #addApi} method to request the
+     * LocationServices API.
+     */
+    protected synchronized void buildGoogleApiClient()
+    {
+        if (getActivity() != null)
+        {
+            LOGI(TAG, "Building GoogleApiClient");
+            mGoogleApiClient = new GoogleApiClient.Builder(getActivity())
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
+                    .build();
+
+            mGoogleApiClient.connect();
+        }
+    }
+
+    private boolean isSkipOneZoom = true;
+
+    private long lastRideUpdateRequestTime;
+
+
+    public void getRidesLocationFromServer()
+    {
+        if (getPickUp() != null)
+        {
+            if (DateTimeUtil.getCurrentTimeInMillis() - lastRideUpdateRequestTime >= RIDE_UPDATE_INTERVAL_DEFAULT)
+            {
+                lastRideUpdateRequestTime = DateTimeUtil.getCurrentTimeInMillis();
+                new KarwaApi().updateRidesNearby(MapUtil.getRadiusOfVisibleRegion(currentRideType, getGoogleMap()), getPickUp(), NEARBY_RIDES_ON_MAP,
+                        (Response.Listener<ArrayList<RideMarkerBean>>) response ->
+                        {
+                            if (response != null)
+                            {
+                                LOGD(TAG, "Got " + response.size() + " Rides");
+
+                                addRidesOnMap(ListOperationsUtil.getRidesToBeAdded(currentRidesList, response));
+                                removeRidesOnMap(ListOperationsUtil.getRidesToBeRemoved(currentRidesList, response));
+                                moveRidesOnMap(ListOperationsUtil.getRidesToBeMoved(currentRidesList, response));
+                                checkRecenterButtonVisiblityCondition();
+                                try
+                                {
+                                    fetchETAToCustomer(response);
+                                } catch (Exception e)
+                                {
+                                    LOGD(TAG, "Exception in Fetching ETA" +
+                                            " to customer");
+                                }
+
+                                isSkipOneZoom = !isSkipOneZoom;
+
+                                if (isSkipOneZoom)
+                                {
+                                    currentRidesList.clear();
+                                    currentRidesList.addAll(response);
+//                            if (!isBookingInProgress())
+//                                zoomAccordingToRides();
+                                }
+                            }
+                        }, HandlerFactory.getGenericErrorHandler());
+            } else
+            {
+                LOGD(TAG, "Skipping Server hit because it's hitting less than " + RIDE_UPDATE_INTERVAL_DEFAULT + " milliseconds");
+            }
+        }
+    }
+
+    /*
+    Fetch ETA for single Vehicle type
+     */
+    public void fetchETA(Location pickup)
+    {
+
+//        new KarwaApi().getEtaTrack(currentRideType, radius, pickup, ETA_VEHICLE_LIMIT,
+//                (Response.Listener<ArrayList<RideMarkerBean>>) response ->
+//                {
+//                    if (response != null)
+//                    {
+//                        LOGD(TAG, "Got " + response.size() + " Rides");
+//
+//                        try
+//                        {
+//
+//                            onEachVehicleTypeETAUpdate(response);
+//                        } catch (Exception e)
+//                        {
+//                            LOGD(TAG, "Exception in Fetching ETA" +
+//                                    " to customer");
+//                        }
+//
+//
+//                    } else {
+//                        onEachVehicleTypeETAUpdate(null);
+//                    }
+//                }, error ->
+//                {
+//                    onEachVehicleTypeETAUpdate(null);
+//
+//                });
+        new KarwaApi().getEtaTrackForAllVehicleTypes(pickup,
+                (Response.Listener<ArrayList<RideMarkerBean>>) response ->
+                {
+                    if (response != null)
+                    {
+                        LOGD(TAG, "Got " + response.size() + " Rides");
+
+                        try
+                        {
+
+
+                            onEachVehicleTypeETAUpdate(response);
+                        } catch (Exception e)
+                        {
+                            LOGD(TAG, "Exception in Fetching ETA" +
+                                    " to customer");
+                        }
+                    } else
+                    {
+                        onEachVehicleTypeETAUpdate(null);
+                    }
+                }, error ->
+                {
+                    onEachVehicleTypeETAUpdate(null);
+
+                });
+    }
+
+    abstract void onMapStart(GoogleMap googleMap);
+
+    abstract void onEachVehicleTypeETAUpdate(ArrayList<RideMarkerBean> eta);
+
+    abstract void fetchETAToCustomer(ArrayList<RideMarkerBean> nearbyRides);
+
+    abstract void checkRecenterButtonVisiblityCondition();
+
+
+    public void zoomAccordingToRides()
+    {
+        try
+        {
+            if (currentRidesList.size() == 0)
+            {
+                return;
+            } else
+            {
+                LatLngBounds.Builder builder = new LatLngBounds.Builder();
+
+                for (RideMarkerBean rideMarkerBean : currentRidesList)
+                {
+                    builder.include(new LatLng(rideMarkerBean.lat, rideMarkerBean.lon));
+                }
+
+                builder.include(LocationUtil.getLocationObjTrimmed(getCurrentLocation()));
+
+                LatLngBounds bounds = builder.build();
+
+                zoomAccordingToRides(bounds);
+            }
+        } catch (Exception e)
+        {
+            e.getMessage();
+        }
+    }
+
+    public void zoomAccordingToRides(LatLngBounds bounds)
+    {
+        int padding = 275;
+        zoomAccordingToRides(bounds, padding);
+    }
+
+    public void zoomAccordingToRides(LatLngBounds bounds, int padding)
+    {
+        try
+        {
+            CameraUpdate cu = CameraUpdateFactory.newLatLngBounds(bounds, padding);
+
+            getGoogleMap().animateCamera(cu, CAMERA_SPEED_FAST, null);
+        } catch (Exception e)
+        {
+            LOGE(TAG, "->" + e.getMessage());
+            /* Try with lower padding */
+            try
+            {
+                CameraUpdate cu = CameraUpdateFactory.newLatLngBounds(bounds, 275);
+
+                getGoogleMap().animateCamera(cu, CAMERA_SPEED_FAST, null);
+            } catch (Exception e1)
+            {
+                LOGE(TAG, "->" + e1.getMessage());
+            }
+        }
+    }
+
+    public void getAddressFromServer(Location currentLocation, Response.Listener<ArrayList<GeoLocation>> response)
+    {
+        new KarwaApi().reverseGeoCode(currentLocation, 1, response, HandlerFactory.getGenericErrorHandler());
+    }
+
+
+    public void getAddressFromServer(Location currentLocation, Response.Listener<ArrayList<GeoLocation>> response, Response.ErrorListener errorListener)
+    {
+        new KarwaApi().reverseGeoCode(currentLocation, 1, response, errorListener);
+    }
+
+    private void addRidesOnMap(ArrayList<RideMarkerBean> ridesToBeAdded)
+    {
+        LOGD(TAG, "New " + ridesToBeAdded.size() + " Rides");
+
+        if (googleMap != null)
+        {
+            for (RideMarkerBean ride : ridesToBeAdded)
+            {
+                MarkerOptions riderMarker = new MarkerOptions()
+                        .icon(MapUtil.getRideMarker(ride.vehicleType))
+                        .anchor(0.5f, 0.5f)
+                        .flat(false)
+                        .rotation(ride.getBearing() != null ? ride.getBearing() : 0f)
+                        .position(new LatLng(ride.getLat(), ride.getLon()));
+
+                final Marker rideMarker = googleMap.addMarker(riderMarker);
+
+                MapAnimations.fadeInMarker(rideMarker);
+
+                rideMarkersMap.put(ride.getRideNo(), rideMarker);
+
+            }
+        }
+
+        currentRidesList.addAll(ridesToBeAdded);
+    }
+
+    private void removeRidesOnMap(ArrayList<RideMarkerBean> ridesToBeRemoved)
+    {
+        LOGD(TAG, "Need to Remove " + ridesToBeRemoved.size() + " Rides");
+
+        for (RideMarkerBean ride : ridesToBeRemoved)
+        {
+            Marker rideMarker = rideMarkersMap.get(ride.getRideNo());
+
+            MapAnimations.scaleOutMarker(getContext(), rideMarker, currentRideType, 500);
+        }
+
+        currentRidesList.removeAll(ridesToBeRemoved);
+    }
+
+    private void moveRidesOnMap(ArrayList<RideMarkerBean> ridesToBeMoved)
+    {
+        LOGD(TAG, "Moving " + ridesToBeMoved.size() + " Rides");
+
+        for (RideMarkerBean ride : ridesToBeMoved)
+        {
+            Marker rideMarker = rideMarkersMap.get(ride.getRideNo());
+
+            if (rideMarker != null)
+                new MapAnimations().animateMove(rideMarker, rideMarker.getPosition(), new LatLng(ride.getLat(), ride.getLon()));
+        }
+    }
+
+    @Override
+    public void onMapReady(GoogleMap googleMap)
+    {
+        setGoogleMap(googleMap);
+        new Handler().postDelayed(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                setMapPadding(googleMap, 50);
+            }
+        }, 500);
+        googleMap.getUiSettings().setMyLocationButtonEnabled(false);
+        MapUtil.setSelectedStyle(getContext(), STYLE_DEFAULT, googleMap);
+
+
+        // For showing a move to my location button
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+        {
+            new Handler().postDelayed(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    requestLocationPermission(getActivity());
+                }
+            }, 2500);
+
+            return;
+        }
+        googleMap.setMyLocationEnabled(true);
+        setMapCameraListeners();
+        onMapStart(googleMap);
+
+    }
+
+    private void setMapCameraListeners()
+    {
+
+        googleMap.setOnCameraIdleListener(this::onCameraIdleListener);
+
+
+        googleMap.setOnCameraMoveStartedListener(i -> onMapCameraMove());
+    }
+
+
+    public void zoomToCurrentLocation()
+    {
+        // For zooming automatically to current location
+        if (getCurrentLocation() != null)
+        {
+            CameraPosition cameraPosition = new CameraPosition.Builder()
+                    .target(LocationsObjectsFactory.getLatLng(getCurrentLocation()))
+                    .zoom(MAP_DEFAULT_ZOOM_LEVEL)
+                    .bearing(0)
+                    .tilt(0)
+                    .build();
+            if (googleMap != null)
+            {
+                try
+                {
+                    googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition), CAMERA_SPEED_FAST, null);
+                } catch (Exception e)
+                {
+                    LOGE(TAG, "-->" + e.getMessage());
+                }
+            }
+        }
+//        } else if (getmFusedLocationClient() != null)
+//        {
+//            if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+//                    ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+//            {
+//                // TODO: Consider calling
+//                //    ActivityCompat#requestPermissions
+//                // here to request the missing permissions, and then overriding
+//                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+//                //                                          int[] grantResults)
+//                // to handle the case where the user grants the permission. See the documentation
+//                // for ActivityCompat#requestPermissions for more details.
+//                return;
+//            }
+//            getmFusedLocationClient().getLastLocation().addOnSuccessListener(new OnSuccessListener<Location>()
+//            {
+//                @Override
+//                public void onSuccess(Location location)
+//                {
+//                    MapUtil.zoomToLocation(location, getGoogleMap());
+//
+//                }
+//            });
+//
+//        }
+    }
+
+    private void requestLocationPermission(Activity activity)
+    {
+        try
+        {
+            ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, MY_PERMISSIONS_REQUEST_READ_LOCATION);
+        } catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public void initMap(View rootView, Bundle savedInstanceState)
+    {
+        MapView mapView = rootView.findViewById(R.id.mapView);
+        setMapView(mapView);
+
+        mapView.onCreate(savedInstanceState);
+        mapView.onResume(); // needed to get the map to display immediately
+
+        try
+        {
+            MapsInitializer.initialize(getActivity().getApplicationContext());
+        } catch (Exception e)
+        {
+            LOGE(TAG, String.valueOf(e.getMessage()));
+        }
+
+        mapView.getMapAsync(this);
+    }
+
+    public void clearRideMarkersFromMap()
+    {
+        currentRidesList.clear();
+        rideMarkersMap.clear();
+
+        //clear all previous ride markers
+        if (googleMap != null)
+        {
+            try
+            {
+                googleMap.clear();
+            } catch (Exception e)
+            {
+                LOGE(TAG, "Clearing Rides from map issue: " + e.getMessage());
+            }
+        }
+    }
+
+    public void checkLocationServiceSatisfaction()
+    {
+//        if(!NetworkAvailabilityUtil.isGpsEnabled(getContext()))
+        if (locationRequest != null)
+        {
+            LocationSettingsRequest.Builder builder = new LocationSettingsRequest.Builder().addLocationRequest(locationRequest);
+//            builder.setAlwaysShow(true);
+            Task<LocationSettingsResponse> result =
+            LocationServices.getSettingsClient(getContext()).checkLocationSettings(builder.build());
+            result.addOnCompleteListener(new OnCompleteListener<LocationSettingsResponse>() {
+                @Override
+                public void onComplete(Task<LocationSettingsResponse> task) {
+                    try {
+                        LocationSettingsResponse response = task.getResult(ApiException.class);
+                        new Handler().postDelayed(new Runnable()
+                        {
+                            @Override
+                            public void run()
+                            {
+                                if (getActivity() == null) return;
+                                initFusedLocation();
+
+                            }
+                        }, 1500);
+                        hideLocationDialogIfShown();                        // requests here.
+                    } catch (ApiException exception) {
+                        switch (exception.getStatusCode()) {
+                            case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
+                                // Location settings are not satisfied. But could be fixed by showing the
+                                // user a dialog.
+                                try {
+                                    // Cast to a resolvable exception.
+                                    ResolvableApiException resolvable = (ResolvableApiException) exception;
+                                    // Show the dialog by calling startResolutionForResult(),
+                                    // and check the result in onActivityResult().
+                                    resolvable.startResolutionForResult(
+                                            getActivity(),
+                                            REQUEST_CHECK_SETTINGS);
+                                } catch (IntentSender.SendIntentException e) {
+                                    // Ignore the error.
+                                } catch (ClassCastException e) {
+                                    // Ignore, should be an impossible error.
+                                }
+                                break;
+                            case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
+                                // Location settings are not satisfied. However, we have no way to fix the
+                                // settings so we won't show the dialog.
+                                break;
+                        }
+                    }
+                }
+            });
+//            result.setResultCallback(new ResultCallback<LocationSettingsResult>()
+//            {
+//                @Override
+//                public void onResult(LocationSettingsResult result)
+//                {
+//                    final Status status = result.getStatus();
+//                    switch (status.getStatusCode())
+//                    {
+//                        case LocationSettingsStatusCodes.SUCCESS:
+////                            LOGI(TAG, "All location settings are satisfied.");
+//                            new Handler().postDelayed(new Runnable()
+//                            {
+//                                @Override
+//                                public void run()
+//                                {
+//                                    if (getActivity() == null) return;
+//                                    initFusedLocation();
+//
+//                                }
+//                            }, 1500);
+//                            hideLocationDialogIfShown();
+//                            break;
+//
+//                        case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
+////                            LOGI(TAG, "Location settings are not satisfied. Show the user a locationDialog to upgrade location settings ");
+//                            showLocationPrompt(status);
+//                            break;
+//
+//                        case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
+////                            LOGI(TAG, "Location settings are inadequate, and cannot be fixed here. Dialog not created.");
+//                            break;
+//                    }
+//                }
+//            });
+        }
+    }
+
+    private void hideLocationDialogIfShown()
+    {
+        try
+        {
+            if (locationDialog != null && locationDialog.isShowing())
+                locationDialog.hide();
+        } catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    private void startLocationUpdates()
+    {
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return;
+
+        locationRequest = new LocationRequest();
+
+//        if (mFusedLocationClient != null)
+//            mFusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null);
+    }
+
+    public void permissionGranted()
+    {
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return;
+
+        googleMap.setMyLocationEnabled(true);
+        setMapCameraListeners();
+        initFusedLocation();
+        checkLocationServiceSatisfaction();
+    }
+
+    public void permissionDenied()
+    {
+        MessageUtil.showError(getContext(), "Access Location Permission Denied", Toast.LENGTH_SHORT);
+
+        showPermissionDeniedPrompt();
+    }
+
+    private void showPermissionDeniedPrompt()
+    {
+        locationDialog = new com.afollestad.materialdialogs.MaterialDialog.Builder(getContext())
+                .title(R.string.locationServicesHeader)
+                .content(R.string.locaationServicesMsg)
+                .positiveText(R.string.str_turn_on_location)
+                .onPositive(new MaterialDialog.SingleButtonCallback()
+                {
+                    @Override
+                    public void onClick(@NonNull MaterialDialog dialog, @NonNull DialogAction which)
+                    {
+                        locationDialog.dismiss();
+                        setPickupManually();
+                    }
+                })
+                .cancelable(false)
+                .show();
+//        locationDialog = MaterialDialogUtil.karwaDialog(getContext(), R.string.locationServicesHeader, R.string.locaationServicesMsg, R.string.str_set_pickup_from_map, R.string.str_request_on_location, new View.OnClickListener()
+//        {
+//            @Override
+//            public void onClick(View v)
+//            {
+//                locationDialog.dismiss();
+//                setPickupManually();
+//            }
+//        }, new View.OnClickListener()
+//        {
+//            @Override
+//            public void onClick(View v)
+//            {
+//                locationDialog.dismiss();
+//                requestLocationPermission(getActivity());
+//            }
+//        });
+//        locationDialog.getWindow().setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+//        locationDialog.setCancelable(false);
+//        locationDialog.show();
+    }
+
+    private void showLocationPrompt(final Status status)
+    {
+        try
+        {
+            if (locationDialog == null || !locationDialog.isShowing())
+            {
+                locationDialog = new com.afollestad.materialdialogs.MaterialDialog.Builder(getContext())
+                        .title(R.string.locationServicesHeader)
+                        .content(R.string.locaationServicesMsg)
+                        .positiveText(R.string.str_turn_on_location)
+                        .onPositive(new MaterialDialog.SingleButtonCallback()
+                        {
+                            @Override
+                            public void onClick(@NonNull MaterialDialog dialog, @NonNull DialogAction which)
+                            {
+                                locationDialog.dismiss();
+                                showTurnOnLocationDialog(status);
+                            }
+                        })
+                        .cancelable(false)
+                        .show();
+
+//                locationDialog = MaterialDialogUtil.karwaDialog(getContext(), R.string.locationServicesHeader, R.string.locaationServicesMsg, R.string.str_set_pickup_from_map, R.string.str_turn_on_location, new View.OnClickListener()
+//                {
+//                    @Override
+//                    public void onClick(View v)
+//                    {
+//                        ApplicationStateData.getInstance().setForcedPickupManually(true);
+//                        setPickupManually();
+//                    }
+//                }, new View.OnClickListener()
+//                {
+//                    @Override
+//                    public void onClick(View v)
+//                    {
+//                        showTurnOnLocationDialog(status);
+//                    }
+//                });
+//                locationDialog.getWindow().setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+//                locationDialog.setCancelable(false);
+//                locationDialog.show();
+            }
+        } catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    private void showTurnOnLocationDialog(Status status)
+    {
+        try
+        {
+            // Show the locationDialog by calling startResolutionForResult(), and check the result
+            // in onActivityResult().
+            status.startResolutionForResult(getActivity(), REQUEST_CHECK_SETTINGS);
+        } catch (IntentSender.SendIntentException e)
+        {
+            LOGI(TAG, "PendingIntent unable to execute request.");
+        }
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data)
+    {
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private LocationCallback locationCallback = new LocationCallback()
+    {
+        @Override
+        public void onLocationResult(LocationResult locationResult)
+        {
+            for (Location location : locationResult.getLocations())
+            {
+
+                LOGD(TAG, "--->" + location.getLatitude() + ", " + location.getLongitude());
+
+                break;
+            }
+        }
+    };
+
+
+    private void stopLocationUpdates()
+    {
+        if (mFusedLocationClient != null)
+            mFusedLocationClient.removeLocationUpdates(locationCallback);
+    }
+
+    private void stopScheduler()
+    {
+        if (future != null)
+            future.cancel(true);
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle)
+    {
+        LOGI(TAG, "Google Play Services Connected");
+
+        initFusedLocation();
+    }
+
+    private void initFusedLocation()
+    {
+        try
+        {
+            mFusedLocationClient = LocationServices.getFusedLocationProviderClient(getContext());
+
+            if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+                return;
+
+            mFusedLocationClient.getLastLocation().addOnSuccessListener(getActivity(), new OnSuccessListener<Location>()
+            {
+                @Override
+                public void onSuccess(Location location)
+                {
+                    // Got last known location. In some rare situations this can be null.
+                    if (location != null)
+                    {
+                        setCurrentLocation(location);
+                        zoomToCurrentLocation();
+
+                    } else
+                    {
+                        if (ActivityCompat.checkSelfPermission(getActivity(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                                ActivityCompat.checkSelfPermission(getActivity(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+                        {
+                            // TODO: Consider calling
+                            //    ActivityCompat#requestPermissions
+                            // here to request the missing permissions, and then overriding
+                            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                            //                                          int[] grantResults)
+                            // to handle the case where the user grants the permission. See the documentation
+                            // for ActivityCompat#requestPermissions for more details.
+                            return;
+                        }
+                        mFusedLocationClient.getLastLocation().addOnSuccessListener(this);
+                    }
+
+                }
+            });
+
+            startLocationUpdates();
+        } catch (Exception e)
+        {
+            LOGE(TAG, String.valueOf(e.getMessage()));
+        }
+    }
+
+    public void setGoogleMap(GoogleMap googleMap)
+    {
+        this.googleMap = googleMap;
+    }
+
+    public void setMapView(MapView mMapView)
+    {
+        this.mMapView = mMapView;
+    }
+
+    public GoogleMap getGoogleMap()
+    {
+        return googleMap;
+    }
+
+    public MapView getMapView()
+    {
+        return mMapView;
+    }
+
+    public void startCreateBookingAnimation()
+    {
+        MapUtil.setSelectedStyle(getContext(), STYLE_DARK, getGoogleMap());
+
+        tiltCameraForBooking();
+    }
+
+    private void tiltCameraForBooking()
+    {
+//        keepRotating();
+    }
+
+    private void keepRotating()
+    {
+        for (int i = 1; i < 10; i++)
+        {
+            final int bearing = 15 * i;
+
+            new Handler().postDelayed(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (getActivity() == null) return;
+                    CameraPosition cameraPosition = new CameraPosition.Builder()
+                            .target(LocationsObjectsFactory.getLatLng(getCurrentLocation()))
+                            .zoom(MAP_DEFAULT_ZOOM_LEVEL)
+                            .tilt(50)
+                            .bearing(bearing)
+                            .build();
+
+                    googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition), CAMERA_SPEED_FAST, null);
+                }
+            }, 1500 * i);
+        }
+    }
+
+    public void cameraZoom(LatLng latLng, Float zoom)
+    {
+        if (getGoogleMap() != null && latLng != null && zoom != null)
+        {
+            try
+            {
+                getGoogleMap().animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoom), CAMERA_SPEED_FAST, null);
+            } catch (NullPointerException ex)
+            {
+                int result = MapsInitializer.initialize(getActivity());
+                if (result != 0)
+                {
+                    LOGE(TAG, "Google play services there but??");
+                } else
+                {
+                    //retry
+                    if (getGoogleMap() != null)
+                    {
+                        try
+                        {
+                            getGoogleMap().animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoom), CAMERA_SPEED_FAST, null);
+                        } catch (NullPointerException innerEx)
+                        {
+                            LOGE(TAG, "Failed after trying for two times.");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    public void onResume()
+    {
+        super.onResume();
+
+        startLocationUpdates();
+
+        if (mMapView != null)
+            mMapView.onResume();
+
+        // For showing a move to my location button
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return;
+
+        if (showNearbyRidesUpdate)
+            startUpdateTimer();
+
+    }
+
+    private void forceRefreshCurrentLocationIfRequired()
+    {
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return;
+
+        if (mFusedLocationClient != null)
+        {
+            mFusedLocationClient.getLastLocation().addOnSuccessListener(getActivity(), new OnSuccessListener<Location>()
+            {
+                @Override
+                public void onSuccess(Location location)
+                {
+                    // Got last known location. In some rare situations this can be null.
+                    if (location != null)
+                    {
+                        // only update the current location if it's different from previous
+                        if (currentLocation == null)
+                            setCurrentLocation(location);
+                        else if (location.getLatitude() != currentLocation.getLatitude() && location.getLongitude() != currentLocation.getLatitude())
+                            setCurrentLocation(location);
+                    }
+
+                }
+            });
+        }
+    }
+
+    public FusedLocationProviderClient getmFusedLocationClient()
+    {
+        return mFusedLocationClient;
+    }
+
+    private void startUpdateTimer()
+    {
+        if (scheduler == null)
+            scheduler = Executors.newSingleThreadScheduledExecutor();
+
+        future = scheduler.scheduleAtFixedRate(() ->
+        {
+            if(!isBookingInProgress())
+            try
+            {
+                if (ApplicationStateData.getInstance().isOnDashboard())
+                {
+//                       forceRefreshCurrentLocationIfRequired();
+
+                    if (getCurrentLocation() != null && ApplicationStateData.getInstance().getCurrentFragmentPosition() == CREATE_BOOKING)
+                    {
+                        getActivity().runOnUiThread(() ->
+                        {
+                            LOGD(TAG, "Fetching Rides from Server");
+                            getRidesLocationFromServer();
+                        });
+                    } else
+                    {
+                        LOGD(TAG, "Not Fetching Rides from Server because no location found or map is not visible");
+                    }
+                }
+            } catch (Exception e)
+            {
+                LOGE(TAG, "Update Ride Error ->" + e.getMessage());
+            }
+        }, 1000, rideUpdateInterval, TimeUnit.MILLISECONDS);
+    }
+
+    private List<LatLng> listLatLng = new ArrayList<>();
+    private Polyline blackPolyLine;
+//    private Polyline greyPolyLine;
+
+    protected void clearPolyLinesFromMap()
+    {
+        this.listLatLng.clear();
+    }
+
+    protected void clearMap()
+    {
+        try
+        {
+            if (getGoogleMap() != null)
+                getGoogleMap().clear();
+        } catch (Exception e)
+        {
+            LOGE(TAG, String.valueOf(e.getMessage()));
+        }
+    }
+
+
+    protected void drawPolyline(List<LatLng> result, boolean withCaps)
+    {
+        listLatLng.addAll(result);
+        blackPolyLine = MapUtil.getPolyline(getContext(), googleMap, withCaps);
+    }
+
+    public void animatePolyLine()
+    {
+        MapUtil.animatePolyLine(blackPolyLine, listLatLng);
+    }
+
+    public void addMarker(LatLng pickup, BitmapDescriptor icon)
+    {
+        MarkerOptions pickupMarker = new MarkerOptions()
+                .icon(icon)
+                .anchor(0.5f, 0.5f)
+                .flat(false)
+                .position(pickup);
+
+        MapAnimations.fadeInMarker(googleMap.addMarker(pickupMarker));
+    }
+
+    public void addMultiDestinationMarker(BitmapDescriptor icon, List<LatLng> destinations)
+    {
+        for (LatLng destination : destinations)
+        {
+            MarkerOptions pickupMarker = new MarkerOptions()
+                    .icon(icon)
+                    .anchor(0.5f, 0.5f)
+                    .flat(false)
+                    .position(destination);
+
+            MapAnimations.fadeInMarker(googleMap.addMarker(pickupMarker));
+        }
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i)
+    {
+        LOGI(TAG, "Google Play Services Connection Suspended");
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult)
+    {
+        LOGI(TAG, "Google Play Services Connection Failure");
+    }
+
+    @Override
+    public void onPause()
+    {
+        super.onPause();
+
+        if (mMapView != null)
+            mMapView.onPause();
+
+        stopLocationUpdates();
+
+        stopScheduler();
+    }
+
+    public void setShowNearbyRidesUpdate(boolean isRideUpdateEnabled)
+    {
+        this.showNearbyRidesUpdate = isRideUpdateEnabled;
+    }
+
+    public void removeRidesMarkersAndUpdates()
+    {
+        setShowNearbyRidesUpdate(false);
+
+        clearRideMarkersFromMap();
+
+        updateRidesOnMap = false;
+    }
+
+    public void startRidesMarkersAndUpdates()
+    {
+        updateRidesOnMap = true;
+
+        setShowNearbyRidesUpdate(true);
+
+        if (showNearbyRidesUpdate)
+        {
+            startUpdateTimer();
+        }
+
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return;
+        getGoogleMap().setMyLocationEnabled(true);
+    }
+
+    @Override
+    public void onDestroy()
+    {
+        LOGD(TAG, "Destroying BaseMapFragment");
+
+        super.onDestroy();
+        if (mMapView != null)
+            mMapView.onDestroy();
+
+//        if (scheduler != null)
+//            scheduler.shutdown();
+//
+//        if (ridesUpdateTimer != null)
+//            ridesUpdateTimer.cancel();
+//
+//        if (runningAwareTimer != null)
+//        {
+//            runningAwareTimer.cancel();
+//            runningAwareTimer = null;
+//        }
+    }
+
+    @Override
+    public void onLowMemory()
+    {
+        super.onLowMemory();
+        if (mMapView != null)
+            mMapView.onLowMemory();
+    }
+
+    public Location getCurrentLocation()
+    {
+        return currentLocation;
+    }
+
+    public abstract Location getPickUp();
+
+    public abstract void onCameraIdleListener();
+
+    public abstract void onMapCameraMove();
+
+    public abstract void setMapPadding(GoogleMap googleMap, int padding);
+
+
+    public void setCurrentRideType(int pageNumber)
+    {
+        this.currentRideType = getRideType(pageNumber);
+    }
+
+    public int getPageNumber(int rideType)
+    {
+        int pageNumber = 0;
+
+        switch (rideType)
+        {
+            case Config.RIDE_TYPE_TAXI:
+                pageNumber = 0;
+                break;
+            case Config.RIDE_TYPE_SEVEN_SEATER:
+                pageNumber = 1;
+                break;
+            case Config.RIDE_TYPE_SPECIAL_CARE:
+                pageNumber = 2;
+                break;
+            case RIDE_TYPE_STANDARD:
+                pageNumber = 3;
+                break;
+            case Config.RIDE_TYPE_BUSINESS:
+                pageNumber = 4;
+                break;
+            case Config.RIDE_TYPE_LUXURY:
+                pageNumber = 5;
+                break;
+        }
+        return pageNumber;
+    }
+
+    public int getRideType(int pageNumber)
+    {
+        int rideType = 1;
+
+        switch (pageNumber)
+        {
+            case 0:
+                rideType = Config.RIDE_TYPE_TAXI;
+                break;
+            case 2:
+                rideType = Config.RIDE_TYPE_SPECIAL_CARE;
+                break;
+            case 1:
+                rideType = Config.RIDE_TYPE_SEVEN_SEATER;
+                break;
+            case 3:
+                rideType = RIDE_TYPE_STANDARD;
+                break;
+            case 4:
+                rideType = Config.RIDE_TYPE_BUSINESS;
+                break;
+            case 5:
+                rideType = Config.RIDE_TYPE_LUXURY;
+                break;
+        }
+        return rideType;
+    }
+
+    public ArrayList<RideMarkerBean> getNearbyRidesList()
+    {
+        return currentRidesList;
+    }
+
+    public void setMarkerAnimationStartY(int markerAnimationStartY)
+    {
+        this.markerAnimationStartY = markerAnimationStartY;
+    }
+
+    private int getMarkerAnimationStartY()
+    {
+        return 1500;
+    }
+
+    public void setCurrentLocation(Location currentLocation)
+    {
+        if (requestForGeoLocation)
+            requestServerForCurrentLocationName(currentLocation);
+        else
+            onNewLocationFound(currentLocation);
+
+        if (currentLocation != null)
+            ApplicationStateData.getInstance().setCurrentLocation(currentLocation);
+
+        this.currentLocation = currentLocation;
+    }
+
+    public void setRequestForGeoLocation(boolean requestForGeoLocation)
+    {
+        this.requestForGeoLocation = requestForGeoLocation;
+    }
+
+    public GeoLocation getCurrentGeoLocation()
+    {
+        return currentGeoLocation;
+    }
+
+    public void setCurrentGeoLocation(GeoLocation currentGeoLocation)
+    {
+        this.currentGeoLocation = currentGeoLocation;
+    }
+
+    public void requestServerForCurrentLocationName(final Location currentLocation)
+    {
+        if (currentLocation != null)
+        {
+            GeoLocation newCurrentGeoLocation = LocationUtil.getGeolocationObjTrimmed(currentLocation);
+
+            if (currentGeoLocation != null && currentGeoLocation.lat == newCurrentGeoLocation.lat && currentGeoLocation.lon == newCurrentGeoLocation.lon)
+            {
+                LogUtil.LOGD(TAG, "Skipping reverse geocode because of same location");
+                return;
+            }
+
+            getAddressFromServer(currentLocation, response ->
+            {
+                if (response != null && response.size() > 0)
+                {
+                    LogUtil.LOGD(TAG, "Got " + response.size() + " Addresses");
+                    if (response.get(0) != null)
+                    {
+                        currentGeoLocation = response.get(0);
+
+                        // Keeping the same lat long for pickup coming from GPS
+                        currentGeoLocation.lat = currentLocation.getLatitude();
+                        currentGeoLocation.lon = currentLocation.getLongitude();
+                        onNewAddressFound(currentGeoLocation);
+                    }
+                } else
+                {
+                    onNewAddressFound(null);
+                }
+            }, error ->
+            {
+                onNewAddressFound(null);
+            });
+        }
+    }
+
+    public void setPickDropMarkers(Context context, LatLng pickUp, LatLng dropOff)
+    {
+        if (pickUp != null)
+            addMarker(pickUp, MapUtil.getPickupMarker(context));
+        if (dropOff != null)
+            addMarker(dropOff, MapUtil.getDropOffMarker(context));
+    }
+
+    protected abstract void onNewLocationFound(Location currentLocation);
+
+    protected abstract void onNewAddressFound(GeoLocation currentGeoLocation);
+
+    protected void setPickupManually()
+    {
+
+    }
+
+    abstract protected boolean isBookingInProgress();
+
+    /*
+    it will check whether the current pointer
+    and the marker for dragging is at same location
+    or not
+     */
+
+    public boolean isCurrentLocationSameAsCamera()
+    {
+        if (getCurrentGeoLocation() != null)
+        {
+            return googleMap.getCameraPosition().target.latitude == getCurrentLocation().getLatitude() &&
+                    googleMap.getCameraPosition().target.longitude == getCurrentLocation().getLongitude();
+        }
+        return false;
+    }
+
+
+}

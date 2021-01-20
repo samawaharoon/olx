@@ -1,0 +1,240 @@
+
+ 
+.login-Btn{
+  margin-right: 20% !important;
+  display: flex;
+  width: 200%;
+  float: right;
+ position: relative;
+ left:500px;
+margin-bottom: 2px;
+height: 50px; 
+border: 2px solid black;
+  
+
+
+}
+ .ui input {
+
+display: flex; 
+width: 600px!important;
+float: right;
+position: relative; 
+left:300px;
+margin-bottom: 2px; 
+ height: 50px; 
+border: 2px solid black; 
+
+} 
+ .ui button{
+margin-right: 25% !important;
+display: flex; 
+float: right; 
+position: relative;
+left: 270px;
+margin-bottom: 2px; 
+height: 50px;  
+ background-color: black !important; 
+color: white !important;
+border: 3px solid black;
+
+}
+/* .input1{
+  display: flex; 
+  width: 60px!important;
+  float: left;
+  position: relative; 
+  left:10px;
+  margin-bottom: 2px; 
+   height: 50px; 
+  
+} */
+
+.field{
+width:200px ;
+position: relative;
+left: 100px;
+}
+ 
+
+
+.login{
+ font-size: 18px;
+ border-bottom: 3px solid black;
+ right:-130px;
+ position: relative;
+ margin-top:20%;
+ text-size-adjust: small;
+ cursor: pointer;
+
+
+}
+
+
+ .sell{
+  background-color: white;
+border-radius: 20px;
+padding-top: 10px;
+padding-bottom: 10px;
+padding-left: 15px;
+padding-right: 15px;
+ margin-right: 150px; 
+border-style: solid;
+border-color:    #09ecec  #1759e9 #1759e9 rgb(243, 239, 4);
+border-bottom-width: 5px;
+border-top-width: 5px;
+border-left-width: 5px;
+border-right-width: 5px;
+font-weight: 900;
+} 
+
+ /* .input{
+outline: blueviolet; 
+
+
+} */
+
+.Location{
+
+ border: 2px solid #333; 
+ background: #fff;
+ border-radius: 5px;
+
+}
+.Label{
+ border: none;
+}
+
+.selectoption{
+  flex: 1;
+  padding: 10px;
+  background-color: #fff;
+  border: none;
+}
+.nav-fix{
+  top: 70px;
+  left: 0px;
+  right: 0px;
+  height: 40px;
+  z-index: 8;
+  background: #fff;
+  box-shadow: 0px 2px 2px rgb(218, 218, 218/36%);
+  padding: 0px 18%;
+  
+}
+.view-cates:hover{
+  border: 0px;
+  padding: 10px 15px;
+  background-color: #f1f1f1;
+  
+ 
+}
+.angle{
+  padding: 3px 10px;
+  border: 0px;
+  background: rgba(0, 0, 0, 0);
+  margin-left: 10px;
+
+}
+.view-cates.angle{
+ background-color: #f1f1f1;
+}
+.nav-fix a {
+  padding: 15px;
+  margin-right: 10px;
+
+}
+.view-cates{
+  border: 0px;
+  padding: 5px 30px;
+  background: #fff;
+}
+.divimg{
+  background: url ="(https://statics.olx.com.pk/external/base/img/hero_bg_pk.jpg)";
+}
+
+.freash{
+  margin-top: 50px;
+}
+.Home{
+  width: 150%;
+  height: 5%;
+  margin-left: 0px;
+  margin-right: 50%;
+  padding-left: 0px;
+  
+}
+
+.Product{
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: flex-end;
+margin: 10px;
+padding: 20px;
+width: 100%;
+max-height: 300px;
+min-width: 270px;
+background-color: white;
+z-index: 1;
+border: 2px solid rgb(234, 237, 237);
+
+}
+
+
+.Product > img{
+  max-height: 135px;
+  width: 100%;
+  object-fit: contain;
+  margin-bottom: 20px;
+
+
+}
+
+.Product > button{
+
+/* margin-top: 10%; */
+
+
+
+}
+
+.stylebtn > button{
+
+background: #f0c14b !important;
+border: 1px solid;
+border-color: #a88734 #9c7e31 #846a29;
+color: #111;
+margin-top:-15% ;
+margin-left: -100%;
+
+
+}
+.Product__price{
+  margin-top: 5px;
+}
+
+.Product__info{
+
+  height: 100px;
+  margin-bottom: 15px;
+  
+}
+.Banner{
+display: flex;
+justify-content: center;
+margin-left: auto;
+margin-right: auto;
+max-width: 1500px;
+
+}
+
+.home__row{
+display: flex;
+z-index: 1;
+margin-left: -5;
+margin-right: -5;
+/* background: teal; */
+
+}
+
