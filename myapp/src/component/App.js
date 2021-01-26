@@ -14,12 +14,12 @@ return(
 
    <Route exact path="/"  strict render={
        () => {
-         return(<h1>this is Welcome page</h1>)
+         return(<h1>this is our  Welcome page</h1>)
           }
 }/> 
 <Route  path="/App"  strict exact render={
        () => {
-         return(<h1>this is App page</h1>)
+         return(<h1>this is our App page</h1>)
           }
 }/> 
    </Switch> 
@@ -29,7 +29,7 @@ return(
    
    <Route exact path="/Butn"  strict render={
        () => {
-         return(<h1>this is Butn page</h1>)
+         return(<h1>this is our Butn page</h1>)
           }
 }/> 
       </Switch> 
